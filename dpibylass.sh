@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [ "$EUID" -ne 0 ]; then
-  echo "باید با دسترسی root اجرا کنی!"
+  echo "You must run this script as root!"
   exit 1
 fi
 
@@ -64,7 +64,7 @@ echo "Starting Trojan-Go in background..."
 nohup trojan-go -config /etc/trojan-go/config.json > /dev/null 2>&1 &
 
 echo "Installing Python package for dummy traffic..."
-pip3 install --quiet --no-cache-dir numpy
+pip3 install --break-system-packages --quiet --no-cache-dir numpy
 
 echo "Creating dummy traffic script..."
 cat > /usr/local/bin/dummy_traffic.py << 'EOF'
