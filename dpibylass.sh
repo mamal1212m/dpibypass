@@ -4,61 +4,95 @@ set -euo pipefail
 LOGFILE="/var/log/dpibypass_install.log"
 exec > >(tee -a "$LOGFILE") 2>&1
 
-echo "🟢 Starting DPI Bypass setup..."
+lock_animation() {
+    clear
+    echo -e "\e[1;34m"  # رنگ آبی پررنگ
+    cat << "EOF"
+       .--------.
+      / .------. \
+     / /        \ \
+     | |        | |
+    _| |________| |_
+  .' |_|        |_| '.
+  '._____ ____ _____.' 
+  |     .'____'.     |
+  '.__.'.'    '.'.__.'
+  '.__  | LOCK |  __.'
+  |   '.'.____.'.'   |
+  '.____'.____.'____.'
+  '.________________.'
+EOF
+    echo -e "\e[0m"  # ریست رنگ
+    echo "🔒 DPI Bypass is locked and secure! 🔒"
+    echo
+}
 
-# Ensure root access
+emoji_rain() {
+  local emojis=("🔐" "🌐" "🚦" "🔑" "🛡️" "📡")
+  for i in {1..5}; do
+    for e in "${emojis[@]}"; do
+      echo -ne "$e "
+    done
+    echo
+    sleep 0.15
+  done
+}
+
+lock_animation
+emoji_rain
+echo "Starting DPI Bypass setup... 🔐🌐🚦🔑🛡️📡"
+
 if [ "$EUID" -ne 0 ]; then
-  echo "❌ ERROR: This script must be run as root."
+  echo -e "\e[31m❌ ERROR: You must run this script as root! ❌\e[0m"
   exit 1
 fi
 
-# Configuration
 VPN_PORT1=8080
+VPN_PORT2=8443
 TG_PORT=443
 
-# Check for port conflict
-if lsof -i :$TG_PORT &>/dev/null; then
-  echo "❌ ERROR: Port $TG_PORT is already in use. Stop the conflicting service first."
+echo "Updating packages and installing prerequisites... 🌐"
+apt update -y
+apt install -y wget unzip openssl python3 python3-pip || { echo -e "\e[31m❌ ERROR: Failed to install prerequisites ❌\e[0m"; exit 1; }
+
+echo "Downloading and installing Trojan-Go... 🚦"
+TMP_DIR=$(mktemp -d)
+cd "$TMP_DIR"
+if ! wget -q https://github.com/p4gefau1t/trojan-go/releases/latest/download/trojan-go-linux-amd64.zip -O trojan-go.zip; then
+  echo -e "\e[31m❌ ERROR: Failed to download Trojan-Go ❌\e[0m"
   exit 1
 fi
 
-echo "🔄 Updating system and installing dependencies..."
-apt update -y
-apt install -y wget unzip openssl python3 python3-pip pipx || {
-  echo "❌ ERROR: Failed to install system dependencies."
+if ! unzip -q trojan-go.zip; then
+  echo -e "\e[31m❌ ERROR: Failed to unzip Trojan-Go ❌\e[0m"
   exit 1
-}
-export PATH=$PATH:/root/.local/bin
-pipx ensurepath
+fi
 
-echo "📦 Downloading and installing Trojan-Go..."
-TMP_DIR=$(mktemp -d)
-cd "$TMP_DIR"
-wget -q https://github.com/p4gefau1t/trojan-go/releases/latest/download/trojan-go-linux-amd64.zip -O trojan-go.zip || {
-  echo "❌ ERROR: Failed to download Trojan-Go."
-  exit 1
-}
-unzip -q trojan-go.zip || {
-  echo "❌ ERROR: Failed to unzip Trojan-Go."
-  exit 1
-}
 chmod +x trojan-go
-[ -f /usr/local/bin/trojan-go ] && mv /usr/local/bin/trojan-go "/usr/local/bin/trojan-go.bak.$(date +%s)"
+
+if [ -f /usr/local/bin/trojan-go ]; then
+  echo "Backing up existing trojan-go binary... 🔐"
+  mv /usr/local/bin/trojan-go /usr/local/bin/trojan-go.bak.$(date +%s)
+fi
+
 mv trojan-go /usr/local/bin/
-cd - && rm -rf "$TMP_DIR"
+cd -
+rm -rf "$TMP_DIR"
 
-echo "🔐 Generating self-signed certificate..."
+echo "Creating config folder and generating self-signed certificate... 🔑"
 mkdir -p /etc/trojan-go
-openssl req -newkey rsa:4096 -nodes -keyout /etc/trojan-go/trojan.key \
-  -x509 -days 3650 -out /etc/trojan-go/trojan.crt -subj "/CN=localhost" >/dev/null 2>&1 || {
-  echo "❌ ERROR: Failed to generate SSL certificate."
-  exit 1
-}
-cat /etc/trojan-go/trojan.crt /etc/trojan-go/trojan.key > /etc/trojan-go/trojan.pem
-chmod 600 /etc/trojan-go/trojan.*
 
-echo "⚙️ Writing Trojan-Go config..."
-cat > /etc/trojan-go/config.json <<EOF
+if ! openssl req -newkey rsa:4096 -nodes -keyout /etc/trojan-go/trojan.key \
+  -x509 -days 3650 -out /etc/trojan-go/trojan.crt -subj "/CN=localhost" >/dev/null 2>&1; then
+  echo -e "\e[31m❌ ERROR: Failed to generate self-signed certificate ❌\e[0m"
+  exit 1
+fi
+
+cat /etc/trojan-go/trojan.crt /etc/trojan-go/trojan.key > /etc/trojan-go/trojan.pem
+chmod 600 /etc/trojan-go/trojan.key /etc/trojan-go/trojan.pem
+
+echo "Writing Trojan-Go config... 🛡️"
+cat > /etc/trojan-go/config.json << EOF
 {
   "run_type": "server",
   "local_addr": "0.0.0.0",
@@ -72,7 +106,9 @@ cat > /etc/trojan-go/config.json <<EOF
     "sni": "localhost",
     "alpn": ["h2", "http/1.1"],
     "session_ticket": true,
-    "reuse_session": true
+    "reuse_session": true,
+    "fallback_addr": "127.0.0.1",
+    "fallback_port": $VPN_PORT2
   },
   "mux": {
     "enabled": true,
@@ -85,22 +121,33 @@ cat > /etc/trojan-go/config.json <<EOF
 }
 EOF
 
-echo "🚦 Starting Trojan-Go..."
-pkill -x trojan-go 2>/dev/null || true
+echo "Starting Trojan-Go in background... 📡"
+if pgrep -x "trojan-go" > /dev/null; then
+  echo "Stopping existing trojan-go process... 🔐"
+  pkill trojan-go
+  sleep 2
+fi
+
 nohup trojan-go -config /etc/trojan-go/config.json > /var/log/trojan-go.log 2>&1 &
 sleep 3
-if ! pgrep -x trojan-go >/dev/null; then
-  echo "❌ ERROR: Trojan-Go failed to start. Check /var/log/trojan-go.log"
+
+if ! pgrep -x "trojan-go" > /dev/null; then
+  echo -e "\e[31m❌ ERROR: Trojan-Go failed to start. Check /var/log/trojan-go.log ❌\e[0m"
   exit 1
 fi
 
-echo "🧪 Installing numpy in isolated pipx environment..."
-pipx install numpy || {
-  echo "❌ ERROR: Failed to install numpy via pipx"
-  exit 1
-}
+echo "Installing Python package for dummy traffic... 🚦"
 
-echo "📝 Creating dummy traffic script..."
+if ! command -v pipx &>/dev/null; then
+  echo "pipx not found, installing pipx... 🔐"
+  apt install -y pipx
+  export PATH=$PATH:/home/$SUDO_USER/.local/bin
+fi
+
+echo "Installing numpy with pipx... 🔑"
+pipx install numpy || { echo -e "\e[31m❌ ERROR: Failed to install numpy with pipx ❌\e[0m"; exit 1; }
+
+echo "Creating dummy traffic script... 🌐"
 cat > /usr/local/bin/dummy_traffic.py << 'EOF'
 import socket
 import time
@@ -136,16 +183,20 @@ EOF
 
 chmod +x /usr/local/bin/dummy_traffic.py
 
-echo "📡 Starting dummy traffic generator..."
-pkill -f dummy_traffic.py 2>/dev/null || true
+echo "Starting dummy traffic script in background... 🛡️"
+if pgrep -f dummy_traffic.py > /dev/null; then
+  echo "Stopping existing dummy_traffic.py process... 🚦"
+  pkill -f dummy_traffic.py
+  sleep 2
+fi
+
 nohup python3 /usr/local/bin/dummy_traffic.py > /var/log/dummy_traffic_out.log 2>&1 &
 
-echo ""
-echo "✅ Setup complete!"
-echo "Trojan-Go is running on port: $TG_PORT"
-echo "Dummy traffic is being sent to localhost:$TG_PORT"
+echo -e "\e[32mAll done! 🎉🔐🌐🚦🔑🛡️📡\e[0m"
+echo "Trojan-Go TLS port: $TG_PORT"
+echo "Internal TCP VPN ports: $VPN_PORT1 and $VPN_PORT2"
 echo "Logs:"
-echo "  - Installer:         $LOGFILE"
-echo "  - Trojan-Go:         /var/log/trojan-go.log"
-echo "  - Dummy traffic:     /var/log/dummy_traffic.log"
-echo "  - Traffic output:    /var/log/dummy_traffic_out.log"
+echo "  - $LOGFILE"
+echo "  - /var/log/trojan-go.log"
+echo "  - /var/log/dummy_traffic.log"
+echo "  - /var/log/dummy_traffic_out.log"
