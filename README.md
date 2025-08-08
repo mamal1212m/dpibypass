@@ -89,3 +89,10 @@ SNI (Server Name Indication) تمیز و مرتبط با IP خود تنظیم ک
 
 ```bash
 bash <(curl -Ls https://github.com/mamal1212m/dpibypass/raw/main/dpibylass.sh)
+حمایت مالی
+
+اگر از پروژه خوشتان آمد و دوست دارید حمایتی انجام دهید، می‌توانید از طریق آدرس‌های زیر کمک کنید:
+
+ترون (TRON): TL6Rxm6LHitikVbbPUFCYRRoXaaLX7knfj
+
+تتر ERC20 (USDT): 0x927B6169DC36560fFDd3bD3170B43bCDcdb0068D
