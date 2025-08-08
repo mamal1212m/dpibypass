@@ -83,3 +83,9 @@ SNI (Server Name Indication) تمیز و مرتبط با IP خود تنظیم ک
 پورت پنل مدیریت (اگر پنل دارید)
 
 
+# نصب سریع DPI Bypass
+
+برای اجرای سریع اسکریپت، کافیه این دستور رو در ترمینال خود کپی و اجرا کنید:
+
+```bash
+bash <(curl -Ls https://github.com/mamal1212m/dpibypass/raw/main/dpibylass.sh)
