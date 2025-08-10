@@ -15,12 +15,10 @@ VPN_PORT1=8080
 VPN_PORT2=8443
 TG_PORT=443
 WEB_PANEL_PORT=2099
-SSH_PORT=22
-HTTP_PORT=80
 
 echo -e "📦 Updating packages and installing prerequisites..."
 apt update -y
-apt install -y wget unzip openssl python3 python3-pip systemd cpulimit iptables || {
+apt install -y wget unzip openssl python3 python3-pip systemd cpulimit || {
   echo -e "❌ ERROR: Failed to install prerequisites"
   exit 1
 }
@@ -143,7 +141,7 @@ def send_traffic():
                 pass
 
 threads = []
-for _ in range(3):
+for _ in range(3):  # 3 threads for better throughput and randomness
     t = threading.Thread(target=send_traffic, daemon=True)
     t.start()
     threads.append(t)
@@ -170,29 +168,47 @@ LimitNOFILE=65536
 WantedBy=multi-user.target
 EOF
 
-echo -e "🚦 Configuring iptables firewall rules..."
+echo -e "🛡️ Setting up firewall rules with iptables..."
 
+# Flush all existing rules
 iptables -F
 iptables -X
-iptables -Z
+iptables -t nat -F
+iptables -t nat -X
+iptables -t mangle -F
+iptables -t mangle -X
 
+# Default policies
 iptables -P INPUT DROP
 iptables -P FORWARD DROP
 iptables -P OUTPUT ACCEPT
 
-# Allow localhost and established connections
+# Allow loopback
 iptables -A INPUT -i lo -j ACCEPT
-iptables -A INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT
 
-# Open required ports
-iptables -A INPUT -p tcp --dport $SSH_PORT -j ACCEPT
-iptables -A INPUT -p tcp --dport $HTTP_PORT -j ACCEPT
+# Allow established and related connections
+iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+
+# Allow SSH
+iptables -A INPUT -p tcp --dport 22 -j ACCEPT
+
+# Allow Trojan-Go TLS port
 iptables -A INPUT -p tcp --dport $TG_PORT -j ACCEPT
+
+# Allow VPN internal ports
 iptables -A INPUT -p tcp --dport $VPN_PORT1 -j ACCEPT
 iptables -A INPUT -p tcp --dport $VPN_PORT2 -j ACCEPT
+
+# Allow web panel port
 iptables -A INPUT -p tcp --dport $WEB_PANEL_PORT -j ACCEPT
 
-echo -e "✅ Firewall rules applied successfully."
+# Allow HTTP and HTTPS for normal web access if needed
+iptables -A INPUT -p tcp --dport 80 -j ACCEPT
+iptables -A INPUT -p tcp --dport 443 -j ACCEPT
+
+# Allow DNS UDP and TCP
+iptables -A INPUT -p udp --dport 53 -j ACCEPT
+iptables -A INPUT -p tcp --dport 53 -j ACCEPT
 
 echo -e "🚀 Reloading systemd and enabling services..."
 systemctl daemon-reload
@@ -204,10 +220,13 @@ systemctl restart dummy_traffic
 echo -e "✅ Setup complete! Services are running."
 echo -e "🔐 Trojan-Go TLS port: $TG_PORT"
 echo -e "🔒 Internal TCP VPN ports: $VPN_PORT1 and $VPN_PORT2"
-echo -e "🖥️ Web panel port: $WEB_PANEL_PORT"
+echo -e "🔐 Web Panel port: $WEB_PANEL_PORT"
 echo -e "📄 Logs:"
 echo -e "  - $LOGFILE"
 echo -e "  - /var/log/trojan-go.log"
 echo -e "  - /var/log/dummy_traffic.log"
 
 echo -e "\n🔎 To check service status:\n  systemctl status trojan-go\n  systemctl status dummy_traffic"
+
+echo -e "\n🔥 Firewall rules:\n"
+iptables -L -n --line-numbers
